@@ -9,14 +9,13 @@ xgboost
 lightgbm
 prophet
 statsmodels
-
 # MLflow for experiment tracking
 mlflow
 boto3
 
 # Data validation
 pandera
-
+apache-airflow-providers-amazon
 # Feature engineering
 category-encoders
 
@@ -35,7 +34,7 @@ plotly
 sqlalchemy
 psycopg2-binary
 pymongo
-
+duckdb
 # Cloud storage
 s3fs
 
