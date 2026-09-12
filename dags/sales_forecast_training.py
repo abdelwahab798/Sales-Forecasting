@@ -123,9 +123,6 @@ def sales_forecast_training():
         s3_hook = S3Hook(aws_conn_id="minio_s3")
         bucket=extracted_data["bucket"]
         output_path="merge_zone/merged_sales_data.parquet"
-        df_file="/temp/local_pipeline.parquet"
-        if os.path.exists(df_file):
-            os.remove(df_file)
         con=duckdb.connect()
 
         con.execute("""

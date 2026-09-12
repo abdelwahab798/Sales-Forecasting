@@ -1,0 +1,12 @@
+# buckets
+buckets:
+  raw-data: company-raw-data
+
+
+# data_tables
+data_tables:
+  sales: sales
+  inventory: inventory
+  promotions: promotions
+  store_events: store_events
+  customer_traffic: customer_traffic
