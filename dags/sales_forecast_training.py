@@ -122,7 +122,7 @@ def sales_forecast_training():
     def merge_data(extracted_data):
         s3_hook = S3Hook(aws_conn_id="minio_s3")
         bucket=extracted_data["bucket"]
-        output_path="processed_zone/merged_sales_data.parquet"
+        output_path="merge_zone/merged_sales_data.parquet"
         df_file="/temp/local_pipeline.parquet"
         if os.path.exists(df_file):
             os.remove(df_file)
@@ -138,15 +138,15 @@ def sales_forecast_training():
         """)
         logger.info(f"setup duckdb connection to s3://{bucket}/{output_path}")
 
-        con.execute(f"CREATE VIEW sales AS SELECT * FROM read_parquet('s3://{bucket}/raw_zone/sales/*.parquet');")
+        con.execute(f"CREATE VIEW sales AS SELECT * FROM read_parquet('s3://{bucket}/raw_zone/sales/**/*.parquet');")
 
-        con.execute(f"CREATE VIEW inventory AS SELECT product_id, store_id, date, inventory_level, reorder_point, days_of_supply FROM read_parquet('s3://{bucket}/raw_zone/inventory/*.parquet');")
+        con.execute(f"CREATE VIEW inventory AS SELECT product_id, store_id, date, inventory_level, reorder_point, days_of_supply FROM read_parquet('s3://{bucket}/raw_zone/inventory/**/*.parquet');")
 
-        con.execute(f"CREATE VIEW promotions AS SELECT product_id,date, promotion_type, discount_percent FROM read_parquet('s3://{bucket}/raw_zone/promotions/*.parquet');")
+        con.execute(f"CREATE VIEW promotions AS SELECT product_id,date, promotion_type, discount_percent FROM read_parquet('s3://{bucket}/raw_zone/promotions/**/*.parquet');")
 
-        con.execute(f"CREATE VIEW store_events AS SELECT store_id, date, event_type, impact FROM read_parquet('s3://{bucket}/raw_zone/store_events/*.parquet');")
+        con.execute(f"CREATE VIEW store_events AS SELECT store_id, date, event_type, impact FROM read_parquet('s3://{bucket}/raw_zone/store_events/**/*.parquet');")
 
-        con.execute(f"CREATE VIEW customer_traffic AS SELECT store_id, date, customer_traffic, weather_impact, is_holiday FROM read_parquet('s3://{bucket}/raw_zone/customer_traffic/*.parquet');")
+        con.execute(f"CREATE VIEW customer_traffic AS SELECT store_id, date, customer_traffic, weather_impact, is_holiday FROM read_parquet('s3://{bucket}/raw_zone/customer_traffic/**/*.parquet');")
         
         merge_query=f"""
         Copy(
@@ -201,16 +201,105 @@ def sales_forecast_training():
             bucket=merged_data["bucket"]
             output_path=merged_data["output_path"]
             obj=s3_hook.get_key(key=output_path, bucket_name=bucket)
+            file_output="processed_zone/preprocessed_sales_data.parquet"
             df=pd.read_parquet(io.BytesIO(obj.get()['Body'].read()))
+
+            df = df.sort_values(['store_id', 'product_id', 'date'])
+            df.drop(columns=["discount_percent_1"], inplace=True)
             df["promotion_type"]=df["promotion_type"].fillna("No Promotion")
             df["discount_percent"]=df["discount_percent"].fillna(1)
             df["event_type"]=df["event_type"].fillna("No Event")
             df["impact"]=df["impact"].fillna(1)
-        
-        
-    
+            inv_cols = ['inventory_level', 'reorder_point', 'days_of_supply']
+            df[inv_cols]=df.groupby(['store_id', 'product_id'])[inv_cols].ffill().fillna(0)
+            buffer = io.BytesIO()
+            df.to_parquet(buffer, index=False)
+            s3_hook.load_bytes(bytes_data=buffer.getvalue(),key=file_output,bucket_name=bucket,replace=True)
+            return {"bucket": bucket, "file_output": file_output}
+    @task()
+    def display_preprocessed_data(preprocessed_data):
+        s3_hook = S3Hook(aws_conn_id="minio_s3")
+        bucket=preprocessed_data["bucket"]
+        file_output=preprocessed_data["file_output"]
+        obj=s3_hook.get_key(key=file_output, bucket_name=bucket)
+        df=pd.read_parquet(io.BytesIO(obj.get()['Body'].read()))
+        print("=" * 50)
+        print(f"Preprocessed Data Sample:")
+        print(f"Shape: {df.shape} (Rows x Columns)")
+        print(f"Columns: {df.columns.tolist()}")
+        print("\n--- Sample Row ---")
+        print(df.head(5))
+        print("=" * 50 + "\n")
+        print(f"nan values per column:\n{df.isna().sum()}")
+        print(f"Duplicate Rows: {df.duplicated().sum()}")
+        print(f"Data Types:\n{df.dtypes}")
+        print(f"Summary Statistics:\n{df.describe(include='all')}")
 
-       
+    @task()
+    def Feature_engineering(merged_data):
+        s3_hook = S3Hook(aws_conn_id="minio_s3")
+        bucket=merged_data["bucket"]
+        file_output=merged_data["file_output"]
+        new_file_output="feature_engineered_zone/feature_engineered_sales_data.parquet"
+        obj=s3_hook.get_key(key=file_output, bucket_name=bucket)
+        df=pd.read_parquet(io.BytesIO(obj.get()['Body'].read()))
+
+        df["day"]=df["date"].dt.day
+        df["month"]=df["date"].dt.month
+        df["year"]=df["date"].dt.year
+        df["day_of_week"]=df["date"].dt.dayofweek
+        df["quarter"]=df["date"].dt.quarter
+        df["is_month_start"]=df["date"].dt.is_month_start
+        df["is_month_end"]=df["date"].dt.is_month_end
+
+        cate_colums=["store_id","product_id","promotion_type", "event_type"]
+        for col in cate_colums:
+             df[col]=df[col].astype("category").cat.codes
+
+        grouped=df.groupby(['store_id', 'product_id'])['quantity_sold']
+
+        df['quantity_lag_1'] =grouped.shift(1)
+        df['quantity_lag_7'] =grouped.shift(7)
+        df['quantity_lag_14'] =grouped.shift(14)
+        df['quantity_lag_28'] =grouped.shift(28)
+
+        df["quantity_roll_mean_7"]=grouped.transform(lambda x: x.shift(1).rolling(7).mean())
+        df["quantity_roll_mean_28"]=grouped.transform(lambda x: x.shift(1).rolling(28).mean())
+        df["quantity_roll_std_7"]=grouped.transform(lambda x: x.shift(1).rolling(7).std())
+
+        df.drop(columns=['unit_price_egp', 'revenue_egp', 'cost_egp', 'profit_egp'],inplace=True)
+        df.dropna(inplace=True)
+
+        pd.set_option('display.max_columns', None)
+        pd.set_option('display.width', 1000)
+
+        print(f"Shape: {df.shape} (Rows x Columns)")
+        print(f"Columns: {df.columns.tolist()}")
+        print("\n--- Sample Row ---")
+        print(df.head(5))
+        print("=" * 50 + "\n")
+        print(f"nan values per column:\n{df.isna().sum()}")
+        print(f"Duplicate Rows: {df.duplicated().sum()}")
+        print(f"Data Types:\n{df.dtypes}")
+        print(f"Summary Statistics:\n{df.describe(include='all')}")
+
+        buffer = io.BytesIO()
+        df.to_parquet(buffer, index=False)
+        s3_hook.load_bytes(bytes_data=buffer.getvalue(),key=new_file_output,bucket_name=bucket,replace=True)
+        return {"bucket": bucket, "file_output": new_file_output}
+
+    @task()
+    def train_model(feature_engineered_data):
+        s3_hook = S3Hook(aws_conn_id="minio_s3")
+        bucket=feature_engineered_data["bucket"]
+        file_output=feature_engineered_data["file_output"]
+        obj=s3_hook.get_key(key=file_output, bucket_name=bucket)
+        df=pd.read_parquet(io.BytesIO(obj.get()['Body'].read()))
+        
+
+        
+
+
 
     extracted_data=extract_data()
     display_extracted_data(extracted_data)
@@ -218,4 +307,7 @@ def sales_forecast_training():
     print(f"Validation Summary: {summary}")
     merged_data=merge_data(extracted_data)
     display_data_after_merged(merged_data)
+    preprocessed_data=preprocessing_merged_data(merged_data)
+    display_preprocessed_data(preprocessed_data)
+    feature_engineered_data=Feature_engineering(preprocessed_data)
 sales_forecast_training_dag=sales_forecast_training()
