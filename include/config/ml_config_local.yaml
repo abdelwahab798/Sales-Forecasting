@@ -10,3 +10,44 @@ data_tables:
   promotions: promotions
   store_events: store_events
   customer_traffic: customer_traffic
+
+
+validation:
+  required_columns:
+    sales: [date, store_id, product_id, quantity_sold,revenue_egp, cost_egp,profit_egp]
+    inventory: ['date', 'store_id', 'product_id', 'inventory_level', 'reorder_point', 'days_of_supply']
+    promotions: ['date', 'product_id', 'promotion_type', 'discount_percent']
+    store_events: ['store_id', 'date', 'event_type', 'impact']
+    customer_traffic: ['date', 'store_id', 'customer_traffic', 'weather_impact', 'is_holiday']
+
+    data_types:
+      sales:
+        date: datetime64[ns]
+        store_id: object
+        product_id: object
+        quantity_sold: int
+        revenue_egp: float
+        cost_egp: float
+        profit_egp: float
+      inventory:
+        date: datetime64[ns]
+        store_id: object
+        product_id: object
+        inventory_level: int
+        reorder_point: int
+        days_of_supply: int
+      promotions:
+        date: datetime64[ns]
+        product_id: object
+        promotion_type: str
+        discount_percent: float
+      store_events:
+        store_id: int
+        date: datetime64[ns]
+        event_type: str
+        impact: float
+      customer_traffic:
+        date: datetime64[ns]
+        store_id: object
+        customer_traffic: int
+        weather_impact: float
