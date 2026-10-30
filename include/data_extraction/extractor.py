@@ -1,5 +1,5 @@
 from include.utils.minio_s3 import define_s3_hook,load_config, validate_config
-from include.logging.logger import get_logger
+from include.logger.main_logger import get_logger
 import os
 
 logger=get_logger("data_extraction")

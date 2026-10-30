@@ -2,11 +2,12 @@ from datetime import datetime, timedelta
 import gc
 from airflow.decorators import dag, task
 import pandas as pd
-from airflow.providers.amazon.aws.hooks.s3 import S3Hook
-import io
-import duckdb
+from include.data_extraction.extractor import extract_data
+from include.data_display.displaer import display_data
+from include.data_processing.mergeing import merge_data
+from include.data_validation.validator import Datavalidator
+from airflow.exceptions import AirflowFailException
 import logging
-import os
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -27,97 +28,38 @@ default_args ={
 )
 def sales_forecast_training():
     @task()
-    def extract_data():
-        s3_hook = S3Hook(aws_conn_id="minio_s3")
-        bucket = "company-raw-data"
-        categories=["sales", "customer_traffic", "inventory", "promotions", "store_events"]
-        file_paths_map = {}
-        for category in categories:
-            prefix = f"raw_zone/{category}/"
-            keys = s3_hook.list_keys(bucket_name=bucket, prefix=prefix)
-            file_paths_map[category]=[k for k in keys if k.endswith(".parquet")]
-        return {"bucket": bucket, "file_paths": file_paths_map}
+    def extract():
+         return extract_data()
+    @task()
+    def display(extracted_data):
+         display_data(extracted_data)
 
     @task()
-    def display_extracted_data(extract_data):
-        s3_hook = S3Hook(aws_conn_id="minio_s3")
-        bucket=extract_data["bucket"]
-        file_paths=extract_data["file_paths"]
-        for category, paths in file_paths.items():
-            if not paths:
-                print(f"No files found for category: {category}")
-                continue
-            try:
-                sample_paths=paths[0]
-                obj=s3_hook.get_key(key=sample_paths, bucket_name=bucket)
-                parquet_buffer=io.BytesIO(obj.get()['Body'].read())
-                df=pd.read_parquet(parquet_buffer)
-            
-                print("=" * 50)
-                print(f"Category: {category.upper()}")
-                print(f"File: {sample_paths}")
-                print(f"Shape: {df.shape} (Rows x Columns)")
-                print(f"Description:\n{df.describe(include='all')}")
-                print(f"Columns: {df.columns.tolist()}")
-                print("\n--- Sample Row ---")
-                print(df.head(5))
-                print("=" * 50 + "\n")
-            except Exception as e:
-                            print(f"Error occurred while reading file {sample_paths}: {e}")
-                            continue
-
+    def basic_validation_data(extracted_data):
+         erros=Datavalidator().basic_validate(extracted_data)
+         if len(erros)>0:
+             logger.error(f"Data validation failed with errors: {erros}")
+             raise AirflowFailException(f"Data validation failed with errors: {erros}")
+         return extracted_data
     @task()
-    def validation_data(extract_data):
-        s3_hook = S3Hook(aws_conn_id="minio_s3")
-        file_paths=extract_data["file_paths"]
-        bucket=extract_data["bucket"]
-        issues = []
-        total_rows=0
+    def merge(validate_data):
+       return merge_data(validate_data)
 
-        for i , sales_file in enumerate(file_paths["sales"][:10]):
-            obj = s3_hook.get_key(key=sales_file, bucket_name=bucket)
-            parquet_buffer = io.BytesIO(obj.get()['Body'].read())
-            df_sales = pd.read_parquet(parquet_buffer)
-            if i==0:
-                print(f"Sample data from {df_sales.shape[0]} rows:")
-                print(df_sales.head(1))
-                print(f"Columns: {df_sales.columns.tolist()}")
-            if df_sales.empty:
-                issues.append(f"File {sales_file} is empty.")
-                continue
-            total_rows+=len(df_sales)
-            required_columns=["date","product_id", "store_id", "quantity_sold", "revenue_egp"]
-            missing_columns=set(required_columns)-set(df_sales.columns)
-            if missing_columns:
-                issues.append(f"File {sales_file} is missing columns: {missing_columns}")
-
-            if df_sales["quantity_sold"].min() < 0:
-                issues.append(f"File {sales_file} has negative values in 'quantity_sold' column.")
-            if df_sales["revenue_egp"].min() < 0:
-                issues.append(f"File {sales_file} has negative values in 'revenue_egp' column.")
-            if df_sales["date"].isnull().any():
-                issues.append(f"File {sales_file} has null values in 'date' column.")
-            if df_sales["product_id"].isnull().any():
-                issues.append(f"File {sales_file} has null values in 'product_id' column.")
-            if df_sales["store_id"].isnull().any():
-                issues.append(f"File {sales_file} has null values in 'store_id' column.")
-
-        for data_type in ["customer_traffic","inventory","promotions","store_events"]:
-            for file in file_paths[data_type][:2]:
-                obj=s3_hook.get_key(key=file, bucket_name=bucket)
-                parquet_buffer=io.BytesIO(obj.get()['Body'].read())
-                df = pd.read_parquet(parquet_buffer)
-                if df.empty:
-                    issues.append(f"File {file} is empty.")
-
-        summary={
-            "total_files_validated": len(file_paths.get("sales", [])),
-            "total_rows_validated": total_rows,
-            "number_of_issues": len(issues),
-            "issues": issues[:2]
-        }
-        return summary
+         
     
+    orignal_data=extract()
+    display(orignal_data)
+    validate_data=basic_validation_data(orignal_data)
+    mergeded_data=merge(validate_data)
+    display(mergeded_data)
+
+sales_forecast_training_dag=sales_forecast_training()
+         
+         
+    
+
+    
+"""
     @task(execution_timeout=timedelta(minutes=10))
     def merge_data(extracted_data):
         s3_hook = S3Hook(aws_conn_id="minio_s3")
@@ -125,14 +67,14 @@ def sales_forecast_training():
         output_path="merge_zone/merged_sales_data.parquet"
         con=duckdb.connect()
 
-        con.execute("""
+        con.execute(
             INSTALL httpfs; LOAD httpfs;
         SET s3_endpoint='minio:9000';
         SET s3_access_key_id='minioadmin';
         SET s3_secret_access_key='minioadmin';
         SET s3_use_ssl=false;
         SET s3_url_style='path';
-        """)
+        )
         logger.info(f"setup duckdb connection to s3://{bucket}/{output_path}")
 
         con.execute(f"CREATE VIEW sales AS SELECT * FROM read_parquet('s3://{bucket}/raw_zone/sales/**/*.parquet');")
@@ -145,7 +87,7 @@ def sales_forecast_training():
 
         con.execute(f"CREATE VIEW customer_traffic AS SELECT store_id, date, customer_traffic, weather_impact, is_holiday FROM read_parquet('s3://{bucket}/raw_zone/customer_traffic/**/*.parquet');")
         
-        merge_query=f"""
+        merge_query=f
         Copy(
         select s.*,
         i.inventory_level,i.reorder_point,i.days_of_supply,
@@ -166,7 +108,7 @@ def sales_forecast_training():
         left join customer_traffic c
         on s.store_id=c.store_id and s.date=c.date
     ) To 's3://{bucket}/{output_path}' (FORMAT PARQUET);
-        """
+       
         logger.info(f"Executing merge query for s3://{bucket}/{output_path}")
         con.execute(merge_query)
         con.close()
@@ -308,3 +250,4 @@ def sales_forecast_training():
     display_preprocessed_data(preprocessed_data)
     feature_engineered_data=Feature_engineering(preprocessed_data)
 sales_forecast_training_dag=sales_forecast_training()
+"""

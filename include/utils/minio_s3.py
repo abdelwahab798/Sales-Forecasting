@@ -1,5 +1,5 @@
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
-from include.logging.logger import get_logger
+from include.logger.main_logger import get_logger
 import pandas as pd
 import io
 import yaml

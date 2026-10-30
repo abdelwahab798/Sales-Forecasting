@@ -1,5 +1,4 @@
-from utils.minio_s3 import define_s3_hook
-from include.logging.logger import get_logger
+from include.logger.main_logger import get_logger
 import os
 import pandas as pd
 import duckdb
@@ -7,16 +6,17 @@ logger =get_logger("mergeing")
 
 
 def merge_data(data):
-    s3_hook=define_s3_hook()
     bucket=data["bucket"]
     output_path=os.getenv("output_path_merge")
+    endopoint="minio:9000"
+    secrets="minioadmin"
     con=duckdb.connect()
 
-    con.execute("""
+    con.execute(f"""
                 INSTALL httpfs; LOAD httpfs;
-            SET s3_endpoint='minio:9000';
-            SET s3_access_key_id='minioadmin';
-            SET s3_secret_access_key='minioadmin';
+            SET s3_endpoint={endopoint};
+            SET s3_access_key_id={secrets};
+            SET s3_secret_access_key={secrets};
             SET s3_use_ssl=false;
             SET s3_url_style='path';
             """)

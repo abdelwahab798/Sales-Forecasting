@@ -1,41 +1,51 @@
-from utils.minio_s3 import define_s3_hook,read_from_s3,validate_config,load_config
+from include.utils.minio_s3 import validate_config,load_config,read_from_s3
 import pandas as pd
-import io
 import os
-from include.logging.logger import get_logger
+from include.logger.main_logger import get_logger
 logger=get_logger("data_validation")
 
 class Datavalidator:
-    def __init__(self,config_path=os.getenv("MLML_CONFIG_LOCAL")):
+    def __init__(self,config_path=os.getenv("ML_CONFIG_LOCAL")):
         valid_config=validate_config(config_path)
         self.config=load_config(valid_config)
         self.validation_rules=self.config.get("validation")
         self.required_columns=self.validation_rules.get("required_columns")
+        self.data_tables=self.config.get("data_tables")
         self.data_types=self.validation_rules.get("data_types")
 
-    def validate_sales_data(self,df):
+
+    def basic_validate(self,extract_data):
         errors=[]
-        required_cols=self.required_columns.get("sales")
-        data_types=self.data_types.get("sales")
-        for col in required_cols:
-            if col not in df.columns:
-                errors.append(f"Missing required column: {col}")
-
-        for col, expected_type in data_types.items():
-            if col in df.columns:
-                actual_type = str(df[col].dtype)
-                if actual_type != expected_type:
-                    errors.append(f"Column {col} has type {actual_type}, expected {expected_type}")
-
-        if df["revenue_egp"]-df["cost_egp"] != df["profit_egp"]:
-            errors.append("Profit calculation mismatch: revenue_egp - cost_egp != profit_egp")
-        if df["quantity"] < 0:
-            errors.append("Quantity cannot be negative")
-        if errors:
-            logger.error(f"Sales data validation errors: {errors}")
-            return False, errors
+        tables=self.data_tables.keys()
+        file_paths=extract_data["file_paths"]
+        bucket=extract_data["bucket"]
+        for table_name in tables:
+            before_errors=len(errors)
+            paths=file_paths[table_name][:10]
+            if not paths:
+                errors.append(f"No files found for table: {table_name}")
+                continue
+            df=pd.concat(read_from_s3(p,bucket) for p in paths)        
+            required_cols=self.required_columns.get(table_name)
+            mssing=set(required_cols)-set(df.columns)
+            if mssing:
+                errors.append(f"Missing required columns in table: {table_name}, missing columns: {mssing}")
+                
+            data_types=self.data_types.get(table_name)
+            NaN=df.isnull().sum()
+            Duplicates=df.duplicated().sum()
+            for col,excepted in data_types.items():
+                if col in df.columns:
+                    orginal=str(df[col].dtype)
+                    if orginal != excepted:
+                        errors.append(f"Column {col} has type {orginal}, expected {excepted} in table: {table_name}")
+            if int(NaN.sum())>0:
+                errors.append(f"Table {table_name} has {int(NaN.sum())} NaN values")
+            if int(Duplicates)>0:
+                errors.append(f"Table {table_name} has {int(Duplicates)} duplicate rows")
         
+            logger.info(f"Basic validation completed for table {table_name}. Errors found:{len(errors)-before_errors} ")
+        return errors
 
 
-
-        
+    
