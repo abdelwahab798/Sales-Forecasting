@@ -20,34 +20,35 @@ validation:
     store_events: ['store_id', 'date', 'event_type', 'impact']
     customer_traffic: ['date', 'store_id', 'customer_traffic', 'weather_impact', 'is_holiday']
 
-    data_types:
-      sales:
-        date: datetime
-        store_id: object
-        product_id: object
-        quantity_sold: int
-        revenue_egp: float
-        cost_egp: float
-        profit_egp: float
-      inventory:
-        date: datetime
-        store_id: object
-        product_id: object
-        inventory_level: int
-        reorder_point: int
-        days_of_supply: int
-      promotions:
-        date: datetime
-        product_id: object
-        promotion_type: str
-        discount_percent: float
-      store_events:
-        store_id: int
-        date: datetime
-        event_type: str
-        impact: float
-      customer_traffic:
-        date: datetime
-        store_id: object
-        customer_traffic: int
-        weather_impact: float
+  data_types:
+    sales:
+      date: datetime
+      store_id: object
+      product_id: object
+      quantity_sold: int
+      revenue_egp: float
+      cost_egp: float
+      profit_egp: float
+    inventory:
+      date: datetime
+      store_id: object
+      product_id: object
+      inventory_level: int
+      reorder_point: int
+      days_of_supply: int
+    promotions:
+      date: datetime
+      product_id: object
+      promotion_type: str
+      discount_percent: float
+    store_events:
+      store_id: object
+      date: datetime
+      event_type: str
+      impact: float
+    customer_traffic:
+      date: datetime
+      store_id: object
+      customer_traffic: int
+      weather_impact: float
+      is_holiday: bool

@@ -14,9 +14,9 @@ def merge_data(data):
 
     con.execute(f"""
                 INSTALL httpfs; LOAD httpfs;
-            SET s3_endpoint={endopoint};
-            SET s3_access_key_id={secrets};
-            SET s3_secret_access_key={secrets};
+            SET s3_endpoint='{endopoint}';
+            SET s3_access_key_id='{secrets}';
+            SET s3_secret_access_key='{secrets}';
             SET s3_use_ssl=false;
             SET s3_url_style='path';
             """)
