@@ -3,7 +3,7 @@ import gc
 from airflow.decorators import dag, task
 import pandas as pd
 from include.data_extraction.extractor import extract_data
-from include.data_display.displaer import display_data
+from include.data_display.displaer import display_many_data_files,display_merged_data
 from include.data_processing.mergeing import merge_data
 from include.data_validation.validator import Datavalidator
 from airflow.exceptions import AirflowFailException
@@ -32,7 +32,7 @@ def sales_forecast_training():
          return extract_data()
     @task()
     def display(extracted_data):
-         display_data(extracted_data)
+         display_many_data_files(extracted_data)
 
     @task()
     def basic_validation_data(extracted_data):
@@ -44,6 +44,9 @@ def sales_forecast_training():
     @task()
     def merge(validate_data):
        return merge_data(validate_data)
+    @task()
+    def display_data_after_merged(merged_data):
+        display_merged_data(merged_data)
 
          
     
@@ -51,7 +54,7 @@ def sales_forecast_training():
     display(orignal_data)
     validate_data=basic_validation_data(orignal_data)
     mergeded_data=merge(validate_data)
-    display(mergeded_data)
+    display_data_after_merged(mergeded_data)
 
 sales_forecast_training_dag=sales_forecast_training()
          

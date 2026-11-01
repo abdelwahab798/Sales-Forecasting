@@ -7,7 +7,7 @@ logger =get_logger("mergeing")
 
 def merge_data(data):
     bucket=data["bucket"]
-    output_path=os.getenv("output_path_merge")
+    output_path=os.getenv("OUTPUT_PATH_MERGE")
     endopoint="minio:9000"
     secrets="minioadmin"
     con=duckdb.connect()
@@ -34,29 +34,61 @@ def merge_data(data):
     logger.info(f"Created views for sales, inventory, promotions, store_events, and customer_traffic in DuckDB")
             
     merge_query=f"""
-            Copy(
-            select s.*,
-            i.inventory_level,i.reorder_point,i.days_of_supply,
-            p.promotion_type,p.discount_percent,
-            e.event_type,e.impact,
-            c.customer_traffic,c.weather_impact,c.is_holiday
-            from Sales s
-    
-            left join inventory i
-            on s.product_id=i.product_id and s.store_id=i.store_id and s.date=i.date
-    
-            left join promotions p
-            on s.product_id=p.product_id and s.date=p.date
-    
-            left join store_events e
-            on s.store_id=e.store_id and s.date=e.date
-    
-            left join customer_traffic c
-            on s.store_id=c.store_id and s.date=c.date
-        ) To 's3://{bucket}/{output_path}' (FORMAT PARQUET);
+           COPY (
+    WITH distinct_products AS (
+        -- استخراج قائمة المنتجات الثابتة بأسعارها وفئاتها
+        SELECT DISTINCT product_id, category, unit_price_egp 
+        FROM sales
+    ),
+    closure_sales AS (
+        -- توليد صفوف مبيعات بصفر لكل المنتجات في أيام إغلاق الفروع
+        SELECT 
+            e.date,
+            e.store_id,
+            p.product_id,
+            p.category,
+            0 AS quantity_sold,
+            p.unit_price_egp,
+            0.0 AS discount_percent,
+            0.0 AS revenue_egp,
+            0.0 AS cost_egp,
+            0.0 AS profit_egp
+        FROM store_events e
+        CROSS JOIN distinct_products p
+        WHERE NOT EXISTS (
+            SELECT 1 FROM sales s 
+            WHERE s.store_id = e.store_id AND s.date = e.date AND s.product_id = p.product_id
+        )
+    ),
+    complete_sales AS (
+        SELECT 
+            date, store_id, product_id, category, quantity_sold, 
+            unit_price_egp, discount_percent, revenue_egp, cost_egp, profit_egp 
+        FROM sales
+        UNION ALL
+        SELECT * FROM closure_sales
+    )
+    SELECT 
+        s.*,
+        i.inventory_level, i.reorder_point, i.days_of_supply,
+        COALESCE(p.promotion_type, 'no_promotion') AS promotion_type,
+        COALESCE(e.event_type, 'normal_day') AS event_type,
+        COALESCE(e.impact, 0.0) AS impact,
+        c.customer_traffic, c.weather_impact, c.is_holiday
+    FROM complete_sales s
+    LEFT JOIN inventory i
+        ON s.product_id = i.product_id AND s.store_id = i.store_id AND s.date = i.date
+    LEFT JOIN promotions p
+        ON s.product_id = p.product_id AND s.date = p.date
+    LEFT JOIN store_events e
+        ON s.store_id = e.store_id AND s.date = e.date
+    LEFT JOIN customer_traffic c
+        ON s.store_id = c.store_id AND s.date = c.date
+    ORDER BY s.store_id, s.product_id, s.date
+) TO 's3://{bucket}/{output_path}' (FORMAT PARQUET);
             """
     logger.info(f"Executing merge query for s3://{bucket}/{output_path}")
     con.execute(merge_query)
     con.close()
-    return {"bucket": bucket, "output_path": output_path}
+    return {"bucket": bucket, "file_paths": output_path}
     
