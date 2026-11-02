@@ -4,6 +4,7 @@ from airflow.decorators import dag, task
 import pandas as pd
 from include.data_extraction.extractor import extract_data
 from include.data_display.displaer import display_many_data_files,display_merged_data
+from include.feature_engineering.engineer import engineer_features
 from include.data_processing.mergeing import merge_data
 from include.data_validation.validator import Datavalidator
 from airflow.exceptions import AirflowFailException
@@ -48,6 +49,16 @@ def sales_forecast_training():
     def display_data_after_merged(merged_data):
         display_merged_data(merged_data)
 
+    @task()
+    def build_feature_engineering(merged_data):
+        return engineer_features(merged_data)
+
+    @task()
+    def display_feature_engineered_data(feature_engineered_data):
+        display_merged_data(feature_engineered_data,Category="FEATURE_ENGINEERED_DATA")
+
+    
+
          
     
     orignal_data=extract()
@@ -55,6 +66,8 @@ def sales_forecast_training():
     validate_data=basic_validation_data(orignal_data)
     mergeded_data=merge(validate_data)
     display_data_after_merged(mergeded_data)
+    feature_engineered_data=build_feature_engineering(mergeded_data)
+    display_feature_engineered_data(feature_engineered_data)
 
 sales_forecast_training_dag=sales_forecast_training()
          

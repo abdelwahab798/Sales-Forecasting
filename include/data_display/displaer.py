@@ -35,7 +35,7 @@ def display_many_data_files(data:dict):
         display_data(bucket, paths[0], category)
 
 
-def display_merged_data(data:dict):
+def display_merged_data(data:dict,Category:str="MERGED_DATA"):
     bucket=data["bucket"]
     file_paths=data["file_paths"]
     display_data(bucket, file_paths, "MERGED_DATA")

@@ -1,6 +1,5 @@
 from include.logger.main_logger import get_logger
 import os
-import pandas as pd
 import duckdb
 logger =get_logger("mergeing")
 
@@ -36,12 +35,10 @@ def merge_data(data):
     merge_query=f"""
            COPY (
     WITH distinct_products AS (
-        -- استخراج قائمة المنتجات الثابتة بأسعارها وفئاتها
         SELECT DISTINCT product_id, category, unit_price_egp 
         FROM sales
     ),
     closure_sales AS (
-        -- توليد صفوف مبيعات بصفر لكل المنتجات في أيام إغلاق الفروع
         SELECT 
             e.date,
             e.store_id,
