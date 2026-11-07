@@ -3,6 +3,7 @@ from include.logger.main_logger import get_logger
 import pandas as pd
 import io
 import yaml
+import joblib
 logger=get_logger("minio_s3")
 
 
@@ -13,11 +14,21 @@ def read_from_s3(path,bucket):
     return df
 
 
-def upload_to_s3(df, path, bucket):
+def upload_df_to_s3(df, path, bucket):
     s3_hook =define_s3_hook()
     buffer = io.BytesIO()
     df.to_parquet(buffer, index=False)
+    buffer.seek(0)
     s3_hook.load_bytes(bytes_data=buffer.getvalue(), key=path, bucket_name=bucket, replace=True)
+
+def upload_artifacts_to_s3(artifact_obj, path, bucket):
+    s3_hook = define_s3_hook()
+    buffer = io.BytesIO()
+    joblib.dump(artifact_obj, buffer)
+    s3_hook.load_bytes(bytes_data=buffer.getvalue(),
+        key=path,
+        bucket_name=bucket,
+        replace=True)
 
 def define_s3_hook():
     s3_hook = S3Hook(aws_conn_id='minio_s3')

@@ -20,6 +20,9 @@ def display_data(bucket:str,file_pahts:str,category:str="MERGED_DATA"):
         logger.info(f"data types\n {df.dtypes}")
         logger.info("\n--- Sample Row ---")
         logger.info(df.head(5))
+        logger.info("---- NaN or Duplicates")
+        logger.info(f"Number of NaN values:\n{df.isna().sum()}")
+        logger.info(f"Number of duplicate rows: {df.duplicated().sum()}")
         logger.info("=" * 50 + "\n")
     except Exception as e:
         logger.error(f"Error displaying data for category: {category}. Error: {e}")

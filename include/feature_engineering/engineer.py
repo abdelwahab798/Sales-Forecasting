@@ -1,9 +1,10 @@
 from include.logger.main_logger import get_logger
-from include.utils.minio_s3 import read_from_s3,upload_to_s3
+from include.utils.minio_s3 import read_from_s3,upload_df_to_s3,upload_artifacts_to_s3
 import os
 from sklearn.preprocessing import OrdinalEncoder
+import joblib
 
-encoder=OrdinalEncoder()
+
 logger = get_logger("feature_engineering")
 
 new_file_path=os.getenv("OUTPUT_PATH_FEATURE_ENGINEERING")
@@ -36,9 +37,18 @@ def engineer_features(data: dict):
     logger.info("Extracted date features: day, month, year, day_of_week, quarter, is_month_start, is_month_end.")
 
     # encode categorical columns
-    cate_colums=["store_id","product_id","promotion_type","event_type","category"]
-    for col in cate_colums:
-            df[col]=encoder.fit_transform(df[[col]])
+    cate_columns=["store_id","product_id","promotion_type","event_type","category"]
+    encoder_path=os.getenv("ENCODER_PATH")
+    if encoder_path:
+        encoder=OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
+        df[cate_columns] =encoder.fit_transform(df[cate_columns])
+        logger.info("Encoded categorical columns using OrdinalEncoder is done")
+        upload_artifacts_to_s3(encoder, encoder_path, bucket)
+        logger.info(f"Uploaded OrdinalEncoder to s3://{bucket}/{encoder_path}.")
+    else:
+        logger.error(f"Encoder path {encoder_path} does not exist. Cannot encode categorical columns.")
+        raise FileNotFoundError(f"Encoder path {encoder_path} does not exist. Cannot encode categorical columns.")
+
 
     grouped=df.groupby(['store_id', 'product_id'])['quantity_sold']
     df['quantity_lag_1'] =grouped.shift(1)
@@ -59,7 +69,7 @@ def engineer_features(data: dict):
     df.drop(columns=['revenue_egp', 'profit_egp',"cost_egp"],inplace=True)
     logger.info("Dropped unnecessary columns: revenue_egp, profit_egp, cost_egp.")
 
-    upload_to_s3(df, new_file_path, bucket)
+    upload_df_to_s3(df, new_file_path, bucket)
     logger.info(f"Uploaded engineered features to s3://{bucket}/{new_file_path}. Shape: {df.shape}")
     return {"bucket": bucket, "file_paths": new_file_path}
 
